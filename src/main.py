@@ -1,17 +1,20 @@
+import logging
 import re
 from urllib.parse import urljoin
+
 import requests_cache
 from bs4 import BeautifulSoup
 from tqdm import tqdm
-import logging
-from constants import BASE_DIR, MAIN_DOC_URL, PEPS_DOC_URL, EXPECTED_STATUS
-from utils import get_response, find_tag
+
 from configs import configure_argument_parser, configure_logging
+from constants import (BASE_DIR, EXPECTED_STATUS, MAIN_DOC_URL, PEPS_DOC_URL,
+                       SUM_STATUS)
 from outputs import control_output
+from utils import find_tag, get_response
 
 
 def whats_new(session) -> list:
-    results = [("Ссылка на статью", "Заголовок", "Редактор, Автор")]
+    results = [('Ссылка на статью', 'Заголовок', 'Редактор, Автор')]
     whats_new_url = urljoin(MAIN_DOC_URL, 'whatsnew/')
     response = get_response(session, whats_new_url)
     if response is None:
@@ -98,60 +101,40 @@ def pep(session):
     if response is None:
         return
     soup = BeautifulSoup(response.text, features='lxml')
-    data = {}
-    sum_status = {
-        'Active': 0,
-        'Accepted': 0,
-        'Deferred': 0,
-        'Draft': 0,
-        'Final': 0,
-        'Provisional': 0,
-        'Rejected': 0,
-        'Superseded': 0,
-        'Withdrawn': 0,
-    }
-    tables = soup.find_all(
-        'table', class_='pep-zero-table docutils align-default')
-    for table in tqdm(tables, "Общий процент выполнения", leave=False):
-        table_body = table.find('tbody')
-        rows = table_body.find_all('tr')
-        for row in tqdm(rows, "Обработка текущей таблицы", leave=False):
-            cols = row.find_all('td')
-            preview_status = cols[0].text[1:]
-            href_pep = cols[1].find('a')
-            link_pep_info = urljoin(PEPS_DOC_URL, href_pep['href'])
-
-            response_pep = get_response(session, link_pep_info)
-            if response_pep is None:
-                return
-            soup_pep = BeautifulSoup(response_pep.text, features='lxml')
-            status_pep = soup_pep.find(
-                string="Status").parent.find_next_sibling().text
-            data[link_pep_info] = (preview_status, status_pep)
-
+    # я предпологал, что в последней таблице указаны все PEP
+    # но учитывая первоапрельскую шутку решил обработать все таблицы
+    table = find_tag(soup, 'section', attrs={'id': 'numerical-index'})
+    table_body = find_tag(table, 'tbody')
+    rows = table_body.find_all('tr')
     rezult_non = []
-    for row in data:
-        preview_status, status_pep = data[row]
-        if status_pep in EXPECTED_STATUS[preview_status]:
-            sum_status[status_pep] += 1
-        else:
-            rezult_non.append([link_pep_info, preview_status, status_pep])
+    for row in tqdm(rows, 'Процент выполнения', leave=False):
+        cols = row.find_all('td')
+        preview_status = cols[0].text[1:]
+        href_pep = find_tag(cols[1], 'a')
+        link_pep_info = urljoin(PEPS_DOC_URL, href_pep['href'])
 
-    if len(rezult_non) > 0:
-        log_pep = "\n" + "Несовпадающие статусы:"
-        for link_pep, preview_pep, status_pep in rezult_non:
-            expected_statuses = list(EXPECTED_STATUS[preview_pep])
-            log_pep += "\n" + link_pep
-            log_pep += "\n" + f"Статус в карточке: {status_pep}"
-            log_pep += "\n" + f"Ожидаемые статусы: {expected_statuses}"
+        response_pep = get_response(session, link_pep_info)
+        if response_pep is None:
+            return
+        soup_pep = BeautifulSoup(response_pep.text, features='lxml')
+        status_pep = find_tag(
+            soup_pep, string='Status').parent.find_next_sibling().text
+        if status_pep in EXPECTED_STATUS[preview_status]:
+            SUM_STATUS[status_pep] += 1
+        else:
+            expected_statuses = list(EXPECTED_STATUS[preview_status])
+            rezult_non.append(link_pep_info)
+            rezult_non.append(f'Статус в карточке: {status_pep}')
+            rezult_non.append(f'Ожидаемые статусы: {expected_statuses}')
+
+    if rezult_non:
+        log_pep = '\n' + 'Несовпадающие статусы:' + '\n'.join(rezult_non)
         logging.info(log_pep)
 
     results = []
-    total = 0
-    for s in sum_status:
-        total += sum_status[s]
-        results.append([s, sum_status[s]])
-    results.append(["Total", total])
+    # хорошая штука extend Спасибо!
+    results.extend(SUM_STATUS.items())
+    results.append(('Total', sum(SUM_STATUS.values())))
     return results
 
 

@@ -1,8 +1,10 @@
-import datetime as dt
-from prettytable import PrettyTable
-from constants import BASE_DIR, DATETIME_FORMAT
 import csv
+import datetime as dt
 import logging
+
+from prettytable import PrettyTable
+
+from constants import BASE_DIR, DATETIME_FORMAT
 
 
 def control_output(results, cli_args):
@@ -10,7 +12,7 @@ def control_output(results, cli_args):
     if output == 'pretty':
         pretty_output(results)
     elif output == 'file':
-        if cli_args.mode == 'pip':
+        if cli_args.mode == 'pep':
             pretty_file_output(results, cli_args)
         else:
             file_output(results, cli_args)
@@ -48,7 +50,7 @@ def file_output(results, cli_args):
 
 def pretty_file_output(results, cli_args):
     table = PrettyTable()
-    table.field_names = ["Статус", "Количество"]
+    table.field_names = ['Статус', 'Количество']
     table.add_rows(results)
     print(table)
 
